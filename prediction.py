@@ -42,8 +42,6 @@ def load_models():
         models['kneighbors'] = joblib.load('/app/model/knears_neighbors_model.pkl')
         models['svc'] = joblib.load('/app/model/svc_model.pkl')
         models['tree'] = joblib.load('/app/model/decision_tree_model.pkl')
-        keras_model = joblib.load('/app/model/undersample_model.h5')
-        models['keras'] = keras_model
         logger.info("Modelos cargados exitosamente.")
     except Exception as e:
         logger.error(f"Error cargando modelos: {str(e)}")
@@ -73,8 +71,7 @@ def process_transaction(transaction_data, models):
                 'logistic': [probabilidad_no_fraude, probabilidad_fraude],
                 'kneighbors': [probabilidad_no_fraude, probabilidad_fraude],
                 'svc': {'non_fraud': probabilidad_no_fraude, 'fraud': probabilidad_fraude},
-                'tree': [probabilidad_no_fraude, probabilidad_fraude],
-                'keras': {'non_fraud': probabilidad_no_fraude, 'fraud': probabilidad_fraude}
+                'tree': [probabilidad_no_fraude, probabilidad_fraude]
             }
 
     Raises:
