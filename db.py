@@ -39,8 +39,6 @@ def init_transactions_table():
         - svc_non_fraud: Probabilidad de no fraude según SVC.
         - decision_tree_fraud: Probabilidad de fraude según árbol de decisión.
         - decision_tree_non_fraud: Probabilidad de no fraude según árbol de decisión.
-        - keras_fraud: Probabilidad de fraude según modelo Keras.
-        - keras_non_fraud: Probabilidad de no fraude según modelo Keras.
 
     Registra en el log la creación o verificación de la tabla.
     """
@@ -58,9 +56,7 @@ def init_transactions_table():
                 svc_fraud REAL,
                 svc_non_fraud REAL,
                 decision_tree_fraud REAL,
-                decision_tree_non_fraud REAL,
-                keras_fraud REAL,
-                keras_non_fraud REAL
+                decision_tree_non_fraud REAL
             )
         """)
         conn.commit()
@@ -84,8 +80,7 @@ def store_transaction(transaction_json, predictions):
                 'logistic': [valor_no_fraude, valor_fraude],
                 'kneighbors': [valor_no_fraude, valor_fraude],
                 'svc': {'fraud': valor_fraude, 'non_fraud': valor_no_fraude},
-                'tree': [valor_no_fraude, valor_fraude],
-                'keras': {'fraud': valor_fraude, 'non_fraud': valor_no_fraude}
+                'tree': [valor_no_fraude, valor_fraude]
             }
 
     Registra en el log el éxito o error al almacenar la transacción.
@@ -99,17 +94,15 @@ def store_transaction(transaction_json, predictions):
                 logistic_regression_fraud, logistic_regression_non_fraud,
                 kneighbors_fraud, kneighbors_non_fraud,
                 svc_fraud, svc_non_fraud,
-                decision_tree_fraud, decision_tree_non_fraud,
-                keras_fraud, keras_non_fraud
+                decision_tree_fraud, decision_tree_non_fraud
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             transaction_json,
             predictions['logistic'][1], predictions['logistic'][0],
             predictions['kneighbors'][1], predictions['kneighbors'][0],
             predictions['svc']['fraud'], predictions['svc']['non_fraud'],
-            predictions['tree'][1], predictions['tree'][0],
-            predictions['keras']['fraud'], predictions['keras']['non_fraud']
+            predictions['tree'][1], predictions['tree'][0]
         ))
         conn.commit()
         logger.info("Transacción almacenada en NeonDB.")
@@ -140,8 +133,7 @@ def get_transaction(transaction_id: str):
             "logistic": [valor_no_fraude, valor_fraude],
             "kneighbors": [valor_no_fraude, valor_fraude],
             "svc": {"non_fraud": valor_no_fraude, "fraud": valor_fraude},
-            "tree": [valor_no_fraude, valor_fraude],
-            "keras": {"non_fraud": valor_no_fraude, "fraud": valor_fraude}
+            "tree": [valor_no_fraude, valor_fraude]
         }
     """
     conn = get_db_connection()
@@ -153,8 +145,7 @@ def get_transaction(transaction_id: str):
                 logistic_regression_fraud, logistic_regression_non_fraud,
                 kneighbors_fraud, kneighbors_non_fraud,
                 svc_fraud, svc_non_fraud,
-                decision_tree_fraud, decision_tree_non_fraud,
-                keras_fraud, keras_non_fraud
+                decision_tree_fraud, decision_tree_non_fraud
             FROM transactions
             WHERE transaction_json->>'transaction_id' = %s
             ORDER BY id DESC
@@ -170,8 +161,7 @@ def get_transaction(transaction_id: str):
             "logistic": [row[2], row[1]],  # [non_fraud, fraud]
             "kneighbors": [row[4], row[3]],
             "svc": {"non_fraud": row[6], "fraud": row[5]},
-            "tree": [row[8], row[7]],
-            "keras": {"non_fraud": row[10], "fraud": row[9]}
+            "tree": [row[8], row[7]]
         }
         return result
     except Exception as e:

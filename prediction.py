@@ -2,8 +2,7 @@
 Módulo para cargar modelos de predicción y procesar transacciones.
 
 Este módulo utiliza modelos de machine learning para generar predicciones
-sobre transacciones. Se emplean tanto modelos tradicionales (cargados con joblib)
-como un modelo Keras, que se compila al cargar.
+sobre transacciones. Se emplean modelos tradicionales cargados con joblib.
 """
 
 import logging
@@ -21,14 +20,13 @@ scaler_time = RobustScaler()
 
 def load_models():
     """
-    Carga y compila los modelos de predicción desde archivos.
+    Carga los modelos de predicción desde archivos.
 
     Los modelos cargados son:
       - 'logistic': Modelo de regresión logística.
       - 'kneighbors': Modelo de k-vecinos.
       - 'svc': Modelo de Support Vector Classifier.
       - 'tree': Modelo de árbol de decisión.
-      - 'keras': Modelo Keras compilado.
 
     Returns:
         dict: Diccionario con los modelos cargados.
