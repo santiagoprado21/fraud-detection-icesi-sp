@@ -1,0 +1,322 @@
+# =============================================================================
+# DOCKER COMPOSE - SISTEMA DE DETECCIÓN DE FRAUDE
+# =============================================================================
+# 
+# Este archivo define la infraestructura completa para el sistema de detección
+# de fraude, incluyendo base de datos, mensajería Kafka y la aplicación FastAPI.
+#
+# ARQUITECTURA:
+# - PostgreSQL: Base de datos para almacenar transacciones y predicciones
+# - Kafka + Zookeeper: Sistema de mensajería para procesamiento de streams
+# - FastAPI: Aplicación principal que procesa transacciones y genera predicciones
+# - Kafka UI: Interfaz web para monitorear tópicos y mensajes de Kafka
+#
+# USO:
+# 1. Iniciar todos los servicios: docker-compose up -d
+# 2. Ver logs: docker-compose logs -f [servicio]
+# 3. Detener servicios: docker-compose down
+# 4. Reconstruir aplicación: docker-compose up --build app
+#
+# PUERTOS EXPUESTOS:
+# - PostgreSQL: 5432
+# - Kafka: 9092 (externo), 29092 (interno)
+# - Zookeeper: 2181
+# - FastAPI: 8000
+# - Kafka UI: 8080
+# =============================================================================
+
+version: "3.8"
+
+# =============================================================================
+# REDES
+# =============================================================================
+# Define una red personalizada para comunicación entre servicios
+networks:
+  fraud-detection:
+    driver: bridge
+    name: fraud-detection-network
+
+# =============================================================================
+# VOLÚMENES PERSISTENTES
+# =============================================================================
+# Almacenamiento persistente para datos de base de datos y Kafka
+volumes:
+  postgres_data:    # Datos de PostgreSQL
+    driver: local
+  kafka_data:       # Datos de Kafka
+    driver: local
+  zookeeper_data:   # Datos de Zookeeper
+    driver: local
+
+# =============================================================================
+# SERVICIOS
+# =============================================================================
+services:
+  # ========================================================================
+  # POSTGRESQL - BASE DE DATOS PRINCIPAL
+  # ========================================================================
+  # Almacena transacciones, predicciones y metadatos del sistema
+  # Reemplaza NeonDB para desarrollo local
+  postgres:
+    image: postgres:15-alpine
+    container_name: fraud-postgres
+    restart: unless-stopped
+    environment:
+      # Configuración de la base de datos
+      POSTGRES_DB: fraud_detection
+      POSTGRES_USER: fraud_user
+      POSTGRES_PASSWORD: fraud_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+      # Configuración de rendimiento
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+    ports:
+      - "5432:5432"  # Puerto para conexiones externas
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Scripts de inicialización (opcional)
+      # - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - fraud-detection
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fraud_user -d fraud_detection"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ========================================================================
+  # ZOOKEEPER - COORDINADOR DE KAFKA
+  # ========================================================================
+  # Servicio de coordinación requerido por Kafka para gestión de metadatos
+  # y coordinación entre brokers
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: fraud-zookeeper
+    restart: unless-stopped
+    environment:
+      # Configuración básica de Zookeeper
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      # Configuración de memoria y rendimiento
+      ZOOKEEPER_MAX_CLIENT_CNXNS: 60
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_INIT_LIMIT: 5
+    ports:
+      - "2181:2181"  # Puerto para conexiones externas
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_data:/var/lib/zookeeper/log
+    networks:
+      - fraud-detection
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ========================================================================
+  # KAFKA - SISTEMA DE MENSAJERÍA
+  # ========================================================================
+  # Plataforma de streaming para procesamiento de transacciones en tiempo real
+  # Permite la comunicación asíncrona entre componentes del sistema
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: fraud-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      # Configuración del broker
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      
+      # Configuración de listeners (conexiones)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      
+      # Configuración de replicación (desarrollo)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      
+      # Configuración de tópicos
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+      
+      # Configuración de rendimiento
+      KAFKA_NUM_PARTITIONS: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 168  # 7 días
+      KAFKA_LOG_RETENTION_BYTES: 1073741824  # 1GB
+    ports:
+      - "9092:9092"   # Puerto externo para clientes
+      - "29092:29092" # Puerto interno para comunicación entre servicios
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - fraud-detection
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ========================================================================
+  # KAFKA UI - INTERFAZ WEB DE MONITOREO
+  # ========================================================================
+  # Herramienta web opcional para visualizar tópicos, mensajes y métricas
+  # de Kafka. Útil para debugging y monitoreo del sistema
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: fraud-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      # Configuración del cluster de Kafka
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      
+      # Configuración de la interfaz
+      KAFKA_CLUSTERS_0_READONLY: false
+      KAFKA_CLUSTERS_0_DISABLE_LOG_DIRS_COLLECTION: false
+    ports:
+      - "8080:8080"  # Interfaz web en http://localhost:8080
+    networks:
+      - fraud-detection
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ========================================================================
+  # APLICACIÓN FASTAPI - SERVICIO PRINCIPAL
+  # ========================================================================
+  # Aplicación principal que procesa transacciones, ejecuta modelos de ML
+  # y genera predicciones de fraude en tiempo real
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: fraud-detection-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      # Configuración de base de datos PostgreSQL
+      DATABASE_URL: postgresql://fraud_user:fraud_password@postgres:5432/fraud_detection
+      
+      # Configuración de Kafka
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_SASL_MECHANISMS: PLAIN
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      KAFKA_SASL_USERNAME: ""
+      KAFKA_SASL_PASSWORD: ""
+      KAFKA_TOPIC_INPUT: transactions_stream
+      KAFKA_TOPIC_OUTPUT: fraud_predictions
+      
+      # Configuración de la aplicación
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      MODEL_PATH: /app/model
+    ports:
+      - "8000:8000"  # API REST en http://localhost:8000
+    volumes:
+      - .:/app                    # Código fuente para desarrollo
+      - ./model:/app/model        # Modelos de ML
+    networks:
+      - fraud-detection
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ========================================================================
+  # KAFKA SETUP - INICIALIZACIÓN DE TÓPICOS
+  # ========================================================================
+  # Servicio temporal que crea los tópicos necesarios en Kafka
+  # Se ejecuta una vez al iniciar el sistema y luego se detiene
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: fraud-kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Esperando a que Kafka esté completamente listo...'
+        sleep 30
+        echo 'Creando tópicos de Kafka...'
+        
+        # Tópico para transacciones entrantes
+        kafka-topics --create --topic transactions_stream \
+          --bootstrap-server kafka:29092 \
+          --partitions 1 \
+          --replication-factor 1 \
+          --if-not-exists \
+          --config retention.ms=604800000 \
+          --config cleanup.policy=delete
+        
+        # Tópico para predicciones de fraude
+        kafka-topics --create --topic fraud_predictions \
+          --bootstrap-server kafka:29092 \
+          --partitions 1 \
+          --replication-factor 1 \
+          --if-not-exists \
+          --config retention.ms=604800000 \
+          --config cleanup.policy=delete
+        
+        echo 'Tópicos creados exitosamente'
+        echo 'Lista de tópicos disponibles:'
+        kafka-topics --list --bootstrap-server kafka:29092
+        echo 'Setup completado'
+      "
+    networks:
+      - fraud-detection
+    profiles:
+      - setup  # Solo se ejecuta con: docker-compose --profile setup up
+
+# =============================================================================
+# INSTRUCCIONES DE USO
+# =============================================================================
+#
+# COMANDOS PRINCIPALES:
+# - Iniciar todos los servicios: docker-compose up -d
+# - Iniciar con setup de tópicos: docker-compose --profile setup up -d
+# - Ver logs de un servicio: docker-compose logs -f [servicio]
+# - Ver logs de todos: docker-compose logs -f
+# - Detener servicios: docker-compose down
+# - Detener y eliminar volúmenes: docker-compose down -v
+# - Reconstruir aplicación: docker-compose up --build app
+# - Escalar servicios: docker-compose up -d --scale app=2
+#
+# ACCESO A SERVICIOS:
+# - API FastAPI: http://localhost:8000
+# - Documentación API: http://localhost:8000/docs
+# - Kafka UI: http://localhost:8080
+# - PostgreSQL: localhost:5432
+# - Kafka: localhost:9092
+#
+# MONITOREO:
+# - Health checks configurados para todos los servicios críticos
+# - Logs centralizados disponibles con docker-compose logs
+# - Kafka UI para monitoreo de mensajes y tópicos
+#
+# DESARROLLO:
+# - Código montado como volumen para hot-reload
+# - Modelos de ML en volumen separado
+# - Variables de entorno configurables
+# =============================================================================
