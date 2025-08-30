@@ -9,7 +9,7 @@ class Config:
     DATABASE_URL = os.getenv("DATABASE_URL")
 
     # Kafka Confluent Cloud
-    KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "pkc-p11xm.us-east-1.aws.confluent.cloud:9092")
+    KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "pkc-921jm.us-east-2.aws.confluent.cloud:9092")
     KAFKA_SASL_MECHANISMS = os.getenv("KAFKA_SASL_MECHANISMS", "PLAIN")
     KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_SSL")
     KAFKA_SASL_USERNAME = os.getenv("KAFKA_SASL_USERNAME")
