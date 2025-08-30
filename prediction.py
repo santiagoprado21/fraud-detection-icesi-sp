@@ -10,8 +10,6 @@ import logging
 import numpy as np
 import pandas as pd
 import joblib
-from tensorflow.keras.models import load_model
-from tensorflow.keras.optimizers import Adam
 from sklearn.preprocessing import RobustScaler
 
 logger = logging.getLogger(__name__)
@@ -44,10 +42,7 @@ def load_models():
         models['kneighbors'] = joblib.load('/app/model/knears_neighbors_model.pkl')
         models['svc'] = joblib.load('/app/model/svc_model.pkl')
         models['tree'] = joblib.load('/app/model/decision_tree_model.pkl')
-        keras_model = load_model('/app/model/undersample_model.h5')
-        keras_model.compile(optimizer=Adam(),
-                            loss='categorical_crossentropy',
-                            metrics=['accuracy'])
+        keras_model = joblib.load('/app/model/undersample_model.h5')
         models['keras'] = keras_model
         logger.info("Modelos cargados exitosamente.")
     except Exception as e:
@@ -143,7 +138,6 @@ def process_transaction(transaction_data, models):
         svc_fraud_prob = 1 / (1 + np.exp(-svc_pred))
         svc_non_fraud_prob = 1 - svc_fraud_prob
         tree_pred = models['tree'].predict_proba(input_array)
-        keras_pred = models['keras'].predict(input_array)
 
         predictions['logistic'] = [
             float(logistic_reg_pred[0][0]), float(logistic_reg_pred[0][1])
@@ -158,10 +152,6 @@ def process_transaction(transaction_data, models):
         predictions['tree'] = [
             float(tree_pred[0][0]), float(tree_pred[0][1])
         ]
-        predictions['keras'] = {
-            'non_fraud': float(keras_pred[0][0]),
-            'fraud': float(keras_pred[0][1])
-        }
 
         logger.info("Predicciones generadas: %s", predictions)
         print("Predicciones generadas:", predictions)
