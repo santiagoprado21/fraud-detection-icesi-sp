@@ -10,6 +10,11 @@ COPY . .
 
 COPY model/ ./model/
 
-EXPOSE 8000
+# Make the startup script executable
+RUN chmod +x start.sh
 
-CMD ["uvicorn", "main:app","--host","0.0.0.0","--port","8000"]
+# Expose the port that will be set by the environment variable
+EXPOSE $PORT
+
+# Use the startup script
+CMD ["./start.sh"]
