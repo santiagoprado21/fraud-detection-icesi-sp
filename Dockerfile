@@ -14,7 +14,7 @@ COPY model/ ./model/
 RUN chmod +x start.sh
 
 # Expose the port that will be set by the environment variable
-EXPOSE $PORT
+EXPOSE 8000
 
 # Use the startup script
 CMD ["./start.sh"]

@@ -95,7 +95,11 @@ def health():
     Returns:
         dict: Estado de la aplicación.
     """
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "models_loaded": len(models) > 0,
+        "models_count": len(models)
+    }
 
 
 @app.get("/transaction/{transaction_id}")
