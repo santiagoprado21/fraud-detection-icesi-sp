@@ -1,8 +1,8 @@
-# 🛡️ Frontend Streamlit - Sistema de Detección de Fraude
+# 🛡️ Frontend Streamlit - Sistema de Detección de Fraude Santiago Prado Larrarte
 
 ## 🌟 Características
 
-Este frontend de Streamlit proporciona una interfaz web elegante y funcional para interactuar con la API de detección de fraude.
+Hola profe este frontend de Streamlit proporciona una interfaz web para interactuar con la API de detección de fraude.
 
 ### 📱 Páginas Disponibles:
 
