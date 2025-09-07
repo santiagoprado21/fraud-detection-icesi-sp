@@ -247,6 +247,41 @@ services:
       start_period: 40s
 
   # ========================================================================
+  # STREAMLIT FRONTEND - INTERFAZ WEB
+  # ========================================================================
+  # Aplicación frontend para interactuar con la API de detección de fraude
+  # Proporciona una interfaz web intuitiva para realizar predicciones
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: fraud-streamlit-frontend
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      # Configuración de Streamlit
+      STREAMLIT_SERVER_PORT: 8501
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_THEME_PRIMARY_COLOR: "#667eea"
+      
+      # URL de la API Backend
+      API_BASE_URL: http://app:8000
+    ports:
+      - "8501:8501"  # Frontend web en http://localhost:8501
+    volumes:
+      - ./streamlit_app.py:/app/streamlit_app.py  # Hot reload para desarrollo
+    networks:
+      - fraud-detection
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ========================================================================
   # KAFKA SETUP - INICIALIZACIÓN DE TÓPICOS
   # ========================================================================
   # Servicio temporal que crea los tópicos necesarios en Kafka
