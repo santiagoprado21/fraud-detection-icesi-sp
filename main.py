@@ -7,15 +7,28 @@ Los modelos de predicción se cargan al iniciar la aplicación.
 import asyncio
 import json
 import logging
+import os
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict
 
-from kafka_client import create_consumer, create_producer, send_to_topic
+try:
+    from kafka_client import create_consumer, create_producer, send_to_topic
+    KAFKA_AVAILABLE = True
+except ImportError:
+    KAFKA_AVAILABLE = False
+    logger.warning("Kafka no disponible - funcionando sin Kafka")
+
+try:
+    from db import store_transaction, init_transactions_table, get_transaction
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
+    logger.warning("Base de datos no disponible - funcionando sin DB")
+
 from prediction import load_models, process_transaction
-from db import store_transaction, init_transactions_table, get_transaction
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -69,15 +82,32 @@ class PredictionResponse(BaseModel):
     models_predictions: Dict
     transaction_id: str = None
 
-# Inicializar la tabla en NeonDB
-init_transactions_table()
+# Inicializar la tabla en NeonDB (solo si está disponible)
+if DB_AVAILABLE:
+    try:
+        init_transactions_table()
+        logger.info("Base de datos inicializada correctamente")
+    except Exception as e:
+        logger.warning(f"No se pudo conectar a la base de datos: {e}")
+        DB_AVAILABLE = False
 
 # Cargar modelos al iniciar la aplicación
 models = load_models()
 
-# Crear clientes Kafka
-producer = create_producer()
-consumer = create_consumer(Config.KAFKA_TOPIC_INPUT)
+# Crear clientes Kafka (solo si está disponible)
+if KAFKA_AVAILABLE:
+    try:
+        producer = create_producer()
+        consumer = create_consumer(Config.KAFKA_TOPIC_INPUT)
+        logger.info("Kafka inicializado correctamente")
+    except Exception as e:
+        logger.warning(f"No se pudo conectar a Kafka: {e}")
+        KAFKA_AVAILABLE = False
+        producer = None
+        consumer = None
+else:
+    producer = None
+    consumer = None
 
 
 async def consume_transactions():
@@ -120,6 +150,26 @@ async def consume_transactions():
         await asyncio.sleep(0.1)
 
 
+@app.get("/")
+def root():
+    """
+    Endpoint raíz del API.
+    
+    Returns:
+        dict: Información básica del API
+    """
+    return {
+        "message": "Sistema de Detección de Fraude API",
+        "autor": "Santiago Prado",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/health",
+            "predict": "/predict",
+            "docs": "/docs"
+        }
+    }
+
+
 @app.post("/predict", response_model=PredictionResponse)
 async def predict_transaction(transaction: TransactionInput):
     """
@@ -150,6 +200,25 @@ async def predict_transaction(transaction: TransactionInput):
         avg_fraud_prob = sum(fraud_probs) / len(fraud_probs)
         is_fraud = avg_fraud_prob > 0.5
         
+        # Almacenar en DB solo si está disponible
+        if DB_AVAILABLE:
+            try:
+                store_transaction(json.dumps(transaction_data), predictions)
+            except Exception as e:
+                logger.warning(f"No se pudo almacenar en DB: {e}")
+        
+        # Enviar a Kafka solo si está disponible
+        if KAFKA_AVAILABLE and producer:
+            try:
+                send_to_topic(
+                    producer,
+                    Config.KAFKA_TOPIC_OUTPUT,
+                    key=f"pred_{hash(str(transaction_data))}",
+                    value=json.dumps(predictions)
+                )
+            except Exception as e:
+                logger.warning(f"No se pudo enviar a Kafka: {e}")
+
         return PredictionResponse(
             is_fraud=is_fraud,
             fraud_probability=avg_fraud_prob,
@@ -189,8 +258,12 @@ def health():
     """
     return {
         "status": "ok",
+        "nombre": "Santiago Prado",
         "models_loaded": len(models) > 0,
-        "models_count": len(models)
+        "models_count": len(models),
+        "kafka_available": KAFKA_AVAILABLE,
+        "db_available": DB_AVAILABLE,
+        "environment": os.getenv("ENVIRONMENT", "unknown")
     }
 
 
@@ -199,19 +272,21 @@ def get_transaction_result(transaction_id: str):
     """
     Obtiene el resultado de una transacción procesada.
 
-    Consulta la transacción en NeonDB utilizando el `transaction_id`. Se evalúa la predicción
-    del modelo 'kneighbors' para determinar si la transacción es fraude o aprobada.
-
     Args:
         transaction_id (str): Identificador de la transacción.
 
     Returns:
-        dict: Contiene el identificador, el estado (fraude, aprobada o sin resultado) y
-              los detalles completos de la transacción.
+        dict: Contiene el identificador y el estado.
 
     Raises:
-        HTTPException: Si no se encuentra la transacción o aún está en proceso.
+        HTTPException: Si la base de datos no está disponible o no se encuentra la transacción.
     """
+    if not DB_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Base de datos no disponible. Use el endpoint /predict para predicciones directas."
+        )
+    
     # Consulta la transacción en la base de datos (NeonDB)
     transaction = get_transaction(transaction_id)
     if transaction is None:
@@ -236,3 +311,8 @@ def get_transaction_result(transaction_id: str):
         "status": result,
         "details": transaction
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
