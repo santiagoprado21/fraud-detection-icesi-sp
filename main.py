@@ -9,6 +9,9 @@ import json
 import logging
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Dict
 
 from kafka_client import create_consumer, create_producer, send_to_topic
 from prediction import load_models, process_transaction
@@ -16,7 +19,55 @@ from db import store_transaction, init_transactions_table, get_transaction
 from config import Config
 
 logger = logging.getLogger(__name__)
-app = FastAPI()
+app = FastAPI(title="Fraud Detection API", description="API para detección de fraude en transacciones", version="1.0.0")
+
+# Configurar CORS para permitir conexiones desde Streamlit
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # En producción, especificar dominios específicos
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Modelos Pydantic para validación de datos
+class TransactionInput(BaseModel):
+    time: float
+    amount: float
+    v1: float
+    v2: float
+    v3: float
+    v4: float
+    v5: float
+    v6: float
+    v7: float
+    v8: float
+    v9: float
+    v10: float
+    v11: float
+    v12: float
+    v13: float
+    v14: float
+    v15: float
+    v16: float
+    v17: float
+    v18: float
+    v19: float
+    v20: float
+    v21: float
+    v22: float
+    v23: float
+    v24: float
+    v25: float
+    v26: float
+    v27: float
+    v28: float
+
+class PredictionResponse(BaseModel):
+    is_fraud: bool
+    fraud_probability: float
+    models_predictions: Dict
+    transaction_id: str = None
 
 # Inicializar la tabla en NeonDB
 init_transactions_table()
@@ -67,6 +118,47 @@ async def consume_transactions():
             print("Error procesando transacción:", str(e))
 
         await asyncio.sleep(0.1)
+
+
+@app.post("/predict", response_model=PredictionResponse)
+async def predict_transaction(transaction: TransactionInput):
+    """
+    Predice si una transacción es fraudulenta.
+    
+    Args:
+        transaction (TransactionInput): Datos de la transacción a analizar
+        
+    Returns:
+        PredictionResponse: Resultado de la predicción con probabilidades por modelo
+    """
+    try:
+        # Convertir a diccionario para el procesamiento
+        transaction_data = transaction.dict()
+        
+        # Procesar transacción con los modelos
+        predictions = process_transaction(transaction_data, models)
+        
+        # Determinar si es fraude (usando promedio de modelos como ejemplo)
+        # Puedes ajustar esta lógica según tus necesidades
+        fraud_probs = [
+            predictions['logistic'][1],
+            predictions['kneighbors'][1], 
+            predictions['svc']['fraud'] if isinstance(predictions['svc'], dict) else predictions['svc'][1],
+            predictions['tree'][1]
+        ]
+        
+        avg_fraud_prob = sum(fraud_probs) / len(fraud_probs)
+        is_fraud = avg_fraud_prob > 0.5
+        
+        return PredictionResponse(
+            is_fraud=is_fraud,
+            fraud_probability=avg_fraud_prob,
+            models_predictions=predictions
+        )
+        
+    except Exception as e:
+        logger.error(f"Error en predicción: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error en el procesamiento: {str(e)}")
 
 
 @app.get("/start-consuming")
